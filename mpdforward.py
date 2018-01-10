@@ -1,5 +1,6 @@
 import socket,asyncore
 import threading
+from parse import parse
 
 #thanks to agrynchuk for providing the code this is based on: https://stackoverflow.com/questions/12799348/how-to-make-a-dynamic-port-forwarding-on-python
 
@@ -13,14 +14,16 @@ class forwarder(asyncore.dispatcher):
 		self.set_reuse_addr()
 		self.bind((ip,port))
 		self.listen(backlog)
-	def updateHost(remoteip,remoteport=6600):
+	def updateRemote(self,remoteip,remoteport=6600):
 		with self.lock:
 			self.remoteip=remoteip
 			self.remoteport=remoteport
 	def getRemoteHost(self):
 		with self.lock:
 			return self.remoteip
-
+	def getRemotePort(self):
+		with self.lock:
+			return self.remoteport
 	def handle_accept(self):
 		conn, addr = self.accept()
 		# print '--- Connect --- '
@@ -30,6 +33,45 @@ class forwarder(asyncore.dispatcher):
 		sender(receiver(conn),remoteip,remoteport)
 	def closef(self):
 		self.close()
+
+class hostSelector(asyncore.dispatcher):
+	def __init__(self, ip, port, forwarder,backlog=5):
+		asyncore.dispatcher.__init__(self)
+		self.create_socket(socket.AF_INET,socket.SOCK_STREAM)
+		self.set_reuse_addr()
+		self.bind((ip,port))
+		self.listen(backlog)
+
+		self.forwarder=forwarder
+	def handle_accept(self):
+		conn, addr = self.accept()
+		print('accept')
+		hostSelectorSocket(conn,self.forwarder)
+	def closef(self):
+		self.close()
+
+class hostSelectorSocket(asyncore.dispatcher):
+	def __init__(self,conn,forwarder):
+		asyncore.dispatcher.__init__(self,conn)
+		self.forwarder=forwarder
+		self.received=False
+	def handle_connect(self):
+		pass
+	def writable(self):
+		return self.received
+	def handle_read(self):
+		read = self.recv(4096)
+		res=parse('{host}:{port:d}\n',read.decode('utf-8'))
+		if res:
+			self.forwarder.updateRemote(res['host'],res['port'])
+		self.received=True
+	def handle_write(self):
+		returnString=self.forwarder.getRemoteHost()+':'+str(self.forwarder.getRemotePort())+'\n'
+		self.send(bytes(returnString,'utf-8'))
+		self.close()
+	def handle_close(self):
+		self.close()
+	
 
 class receiver(asyncore.dispatcher):
 	def __init__(self,conn):
@@ -89,4 +131,5 @@ class sender(asyncore.dispatcher):
 
 
 ser = forwarder('127.0.0.1', 6600, 'localhost', 6601)
+sel = hostSelector('127.0.0.1',6602, ser)
 asyncore.loop()
