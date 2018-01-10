@@ -30,7 +30,10 @@ class forwarder(asyncore.dispatcher):
 		with self.lock:
 			remoteip=self.remoteip
 			remoteport=self.remoteport
-		sender(receiver(conn),remoteip,remoteport)
+		try:
+			sender(receiver(conn),remoteip,remoteport)
+		except Exception as e:
+			print('error forwarding connection' + str(e))
 	def closef(self):
 		self.close()
 
@@ -45,7 +48,6 @@ class hostSelector(asyncore.dispatcher):
 		self.forwarder=forwarder
 	def handle_accept(self):
 		conn, addr = self.accept()
-		print('accept')
 		hostSelectorSocket(conn,self.forwarder)
 	def closef(self):
 		self.close()
